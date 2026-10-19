@@ -4,6 +4,7 @@ from datetime import datetime
 import io
 import base64
 import os
+import re
 
 st.set_page_config(page_title="Inventário de Equipamentos", layout="wide")
 
@@ -11,33 +12,14 @@ st.markdown("""
 <style>
     .stApp { background-color: #f5f5f5; }
     .titulo-inventario { font-size: 22px; font-weight: bold; color: #1a1a1a; margin-bottom: 10px; }
-    .badge-data {
-        background-color: #c8f0c8; border: 1px solid #5cb85c;
-        border-radius: 6px; padding: 6px 14px; font-size: 13px;
-        color: #2d6a2d; font-style: italic; text-align: center;
-    }
-    .secao-header {
-        background-color: #5cb85c; color: white; font-weight: bold;
-        padding: 8px 14px; border-radius: 6px; font-size: 15px; margin-bottom: 4px;
-    }
-    .label-nome {
-        background-color: #fde8d8; border: 1.5px solid #e0a080;
-        border-radius: 6px; padding: 8px 14px; font-weight: bold;
-        font-size: 15px; color: #333; margin-bottom: 4px;
-    }
-    .label-uo {
-        background-color: #d4edda; border: 1.5px solid #5cb85c;
-        border-radius: 6px; padding: 8px 14px; font-weight: bold;
-        font-size: 15px; color: #333; margin-bottom: 4px;
-    }
+    .badge-data { background-color: #c8f0c8; border: 1px solid #5cb85c; border-radius: 6px; padding: 6px 14px; font-size: 13px; color: #2d6a2d; font-style: italic; text-align: center; }
+    .secao-header { background-color: #5cb85c; color: white; font-weight: bold; padding: 8px 14px; border-radius: 6px; font-size: 15px; margin-bottom: 4px; }
+    .label-nome { background-color: #fde8d8; border: 1.5px solid #e0a080; border-radius: 6px; padding: 8px 14px; font-weight: bold; font-size: 15px; color: #333; margin-bottom: 4px; }
+    .label-uo { background-color: #d4edda; border: 1.5px solid #5cb85c; border-radius: 6px; padding: 8px 14px; font-weight: bold; font-size: 15px; color: #333; margin-bottom: 4px; }
     .num-item { font-weight: bold; font-size: 16px; color: #333; padding-top: 8px; }
-    .stButton > button {
-        background-color: #1565C0; color: white; border-radius: 8px;
-        padding: 10px 28px; font-size: 15px; font-weight: bold; border: none;
-    }
+    .stButton > button { background-color: #1565C0; color: white; border-radius: 8px; padding: 10px 28px; font-size: 15px; font-weight: bold; border: none; }
     .stButton > button:hover { background-color: #0d47a1; color: white; }
-    div[data-testid="stSelectbox"] label,
-    div[data-testid="stTextInput"] label { display: none; }
+    div[data-testid="stSelectbox"] label, div[data-testid="stTextInput"] label { display: none; }
     hr { margin: 8px 0; }
 </style>
 """, unsafe_allow_html=True)
@@ -56,8 +38,14 @@ try:
 except Exception:
     MODO_GITHUB   = False
 
+def email_valido(email):
+    return bool(re.match(r'^[^@]+@[^@]+\.com\.br$', email.strip()))
+
+def patrimonio_valido(valor):
+    return bool(re.match(r'^\d{6}$', valor.strip()))
+
 @st.cache_data(show_spinner=False)
-def carregar_lista_uo() -> list:
+def carregar_lista_uo():
     try:
         if MODO_GITHUB:
             from github import Github
@@ -77,12 +65,12 @@ def carregar_lista_uo() -> list:
 
 LISTA_UO = carregar_lista_uo()
 
-def ler_excel_local() -> pd.DataFrame:
+def ler_excel_local():
     if os.path.exists(ARQUIVO_EXCEL):
         return pd.read_excel(ARQUIVO_EXCEL)
     return pd.DataFrame()
 
-def salvar_excel_local(dados: dict):
+def salvar_excel_local(dados):
     df_existente = ler_excel_local()
     df_final     = pd.concat([df_existente, pd.DataFrame([dados])], ignore_index=True)
     df_final.to_excel(ARQUIVO_EXCEL, index=False)
@@ -91,7 +79,7 @@ def get_repo():
     from github import Github
     return Github(GITHUB_TOKEN).get_repo(GITHUB_REPO)
 
-def ler_excel_github() -> pd.DataFrame:
+def ler_excel_github():
     try:
         repo     = get_repo()
         conteudo = repo.get_contents(ARQUIVO_EXCEL, ref=BRANCH)
@@ -100,7 +88,7 @@ def ler_excel_github() -> pd.DataFrame:
     except Exception:
         return pd.DataFrame()
 
-def salvar_excel_github(dados: dict):
+def salvar_excel_github(dados):
     repo         = get_repo()
     df_existente = ler_excel_github()
     df_final     = pd.concat([df_existente, pd.DataFrame([dados])], ignore_index=True)
@@ -108,17 +96,17 @@ def salvar_excel_github(dados: dict):
     df_final.to_excel(buffer, index=False)
     buffer.seek(0)
     conteudo_bytes = buffer.read()
-    msg = f"Novo registro: {dados.get('Nome','')} | {dados.get('UO','')} | {dados.get('Data/Hora','')}"
+    msg = f"Novo registro: {dados.get('Email','')} | {dados.get('UO','')} | {dados.get('Data/Hora','')}"
     try:
         arq = repo.get_contents(ARQUIVO_EXCEL, ref=BRANCH)
         repo.update_file(ARQUIVO_EXCEL, msg, conteudo_bytes, arq.sha, branch=BRANCH)
     except Exception:
         repo.create_file(ARQUIVO_EXCEL, "Criação da planilha de inventário", conteudo_bytes, branch=BRANCH)
 
-def ler_excel() -> pd.DataFrame:
+def ler_excel():
     return ler_excel_github() if MODO_GITHUB else ler_excel_local()
 
-def salvar_excel(dados: dict):
+def salvar_excel(dados):
     if MODO_GITHUB:
         salvar_excel_github(dados)
     else:
@@ -126,12 +114,12 @@ def salvar_excel(dados: dict):
 
 def init_state():
     defaults = {
-        "qt_desktop"      : 1,
-        "qt_notebook"     : 1,
-        "qt_celular"      : 1,
-        "enviado"         : False,
-        "senha_ok"        : False,
-        "senha_digitada"  : "",
+        "qt_desktop"    : 1,
+        "qt_notebook"   : 1,
+        "qt_celular"    : 1,
+        "enviado"       : False,
+        "senha_ok"      : False,
+        "senha_digitada": "",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -143,10 +131,10 @@ def resetar_formulario():
     keys_para_limpar = [k for k in list(st.session_state.keys()) if k not in ("enviado", "senha_ok", "senha_digitada")]
     for k in keys_para_limpar:
         del st.session_state[k]
-    st.session_state.enviado        = False
-    st.session_state.qt_desktop     = 1
-    st.session_state.qt_notebook    = 1
-    st.session_state.qt_celular     = 1
+    st.session_state.enviado     = False
+    st.session_state.qt_desktop  = 1
+    st.session_state.qt_notebook = 1
+    st.session_state.qt_celular  = 1
 
 col_titulo, _, col_data = st.columns([4, 3, 2])
 with col_titulo:
@@ -157,26 +145,25 @@ with col_titulo:
         st.caption("💻 Modo local — salvando em arquivo .xlsx na pasta do projeto")
 
 with col_data:
-    data_hoje = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.markdown(f'<div class="badge-data">📅 Data automática: <b>{data_hoje}</b></div>', unsafe_allow_html=True)
+    data_hoje = datetime.now().strftime("%d/%m/%Y")
+    st.markdown(f'<div class="badge-data">📅 Data: <b>{data_hoje}</b></div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
 col_nome, _, col_uo, col_obs = st.columns([3, 0.5, 3, 3])
 
 with col_nome:
-    st.markdown('<div class="label-nome">👤 Nome</div>', unsafe_allow_html=True)
-    nome = st.text_input("nome_input", placeholder="Digite seu nome completo", key="nome", label_visibility="collapsed")
+    st.markdown('<div class="label-nome">📧 E-mail</div>', unsafe_allow_html=True)
+    nome = st.text_input("nome_input", placeholder="Digite seu e-mail corporativo (ex: nome@empresa.com.br)", key="nome", label_visibility="collapsed")
+    if nome.strip() and not email_valido(nome):
+        st.warning("⚠️ E-mail inválido. Use o formato: usuario@empresa.com.br")
 
 with col_uo:
     st.markdown('<div class="label-uo">🏢 UO</div>', unsafe_allow_html=True)
     uo = st.selectbox("uo_select", options=["Selecione..."] + LISTA_UO, key="uo", label_visibility="collapsed")
 
 with col_obs:
-    st.markdown("""
-    <div style='font-size:12px; color:#555; padding-top:36px;'>
-    ℹ️ Digite para pesquisar sua UO na lista suspensa ao lado.
-    </div>""", unsafe_allow_html=True)
+    st.markdown("""<div style='font-size:12px; color:#555; padding-top:36px;'>ℹ️ Digite para pesquisar sua UO na lista suspensa ao lado.</div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -210,7 +197,9 @@ with col_d2:
         with c1:
             st.markdown(f'<div class="num-item">{i} -</div>', unsafe_allow_html=True)
         with c2:
-            val = st.text_input(f"desk_{i}", placeholder="Inserir patrimônio", key=f"desktop_{i}", label_visibility="collapsed")
+            val = st.text_input(f"desk_{i}", placeholder="6 dígitos (ex: 123456)", key=f"desktop_{i}", label_visibility="collapsed")
+            if val.strip() and not patrimonio_valido(val):
+                st.warning(f"⚠️ Desktop {i}: o patrimônio deve conter exatamente 6 números (ex: 123456).")
             patrimonios_desktop.append(val)
 
 with col_n2:
@@ -220,7 +209,9 @@ with col_n2:
         with c1:
             st.markdown(f'<div class="num-item">{i} -</div>', unsafe_allow_html=True)
         with c2:
-            val = st.text_input(f"note_{i}", placeholder="Inserir patrimônio", key=f"notebook_{i}", label_visibility="collapsed")
+            val = st.text_input(f"note_{i}", placeholder="6 dígitos (ex: 123456)", key=f"notebook_{i}", label_visibility="collapsed")
+            if val.strip() and not patrimonio_valido(val):
+                st.warning(f"⚠️ Notebook {i}: o patrimônio deve conter exatamente 6 números (ex: 123456).")
             patrimonios_notebook.append(val)
 
 with col_c2:
@@ -234,7 +225,9 @@ with col_c2:
             patrimonios_cel_tipo.append(tipo)
         _, c3 = st.columns([0.3, 2.7])
         with c3:
-            num = st.text_input(f"cel_num_{i}", placeholder="Inserir patrimônio", key=f"celular_num_{i}", label_visibility="collapsed")
+            num = st.text_input(f"cel_num_{i}", placeholder="6 dígitos (ex: 123456)", key=f"celular_num_{i}", label_visibility="collapsed")
+            if num.strip() and not patrimonio_valido(num):
+                st.warning(f"⚠️ Celular {i}: o patrimônio deve conter exatamente 6 números (ex: 123456).")
             patrimonios_cel_num.append(num)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -251,10 +244,26 @@ with col_btn2:
 
 if enviar:
     erros = []
+
     if not nome.strip():
-        erros.append("⚠️ O campo **Nome** é obrigatório.")
+        erros.append("⚠️ O campo **E-mail** é obrigatório.")
+    elif not email_valido(nome):
+        erros.append("⚠️ **E-mail inválido.** Use o formato: usuario@empresa.com.br")
+
     if uo == "Selecione...":
         erros.append("⚠️ Selecione uma **UO**.")
+
+    for i, p in enumerate(patrimonios_desktop, 1):
+        if p.strip() and not patrimonio_valido(p):
+            erros.append(f"⚠️ **Desktop {i}:** o patrimônio deve conter exatamente 6 números (ex: 123456).")
+
+    for i, p in enumerate(patrimonios_notebook, 1):
+        if p.strip() and not patrimonio_valido(p):
+            erros.append(f"⚠️ **Notebook {i}:** o patrimônio deve conter exatamente 6 números (ex: 123456).")
+
+    for i, num in enumerate(patrimonios_cel_num, 1):
+        if num.strip() and not patrimonio_valido(num):
+            erros.append(f"⚠️ **Celular {i}:** o patrimônio deve conter exatamente 6 números (ex: 123456).")
 
     if erros:
         for e in erros:
@@ -262,7 +271,7 @@ if enviar:
     else:
         dados = {
             "Data/Hora"  : datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-            "Nome"       : nome.strip(),
+            "Email"      : nome.strip(),
             "UO"         : uo,
             "Qt_Desktop" : st.session_state.qt_desktop,
             "Qt_Notebook": st.session_state.qt_notebook,
