@@ -44,19 +44,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Dados de referência ─────────────────────────────────────────────────────
-LISTA_UO = [
-    "Selecione...", "UO - Belo Horizonte", "UO - São Paulo",
-    "UO - Rio de Janeiro", "UO - Curitiba", "UO - Porto Alegre",
-    "UO - Brasília", "UO - Salvador", "UO - Fortaleza",
-    "UO - Recife", "UO - Goiânia",
-]
-TIPO_CELULAR   = ["Celular obra 360°", "Celular padrão"]
-ARQUIVO_EXCEL  = "inventario_equipamentos.xlsx"
+# ── Constantes ──────────────────────────────────────────────────────────────
+TIPO_CELULAR  = ["Celular obra 360°", "Celular padrão"]
+ARQUIVO_EXCEL = "inventario_equipamentos.xlsx"
+PLANILHA_UO   = "bases/Planilha para atualização - Notebooks e Desktops.xlsx"
 
 # ── Detecta modo de execução ─────────────────────────────────────────────────
-# Se conseguir ler o GITHUB_TOKEN das secrets → modo cloud
-# Caso contrário → modo local (salva arquivo .xlsx na pasta do projeto)
 try:
     GITHUB_TOKEN  = st.secrets["GITHUB_TOKEN"]
     GITHUB_REPO   = st.secrets["GITHUB_REPO"]
@@ -66,9 +59,32 @@ try:
 except Exception:
     MODO_GITHUB   = False
 
+# ── Carrega lista de UOs da planilha base ────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def carregar_lista_uo() -> list:
+    try:
+        if MODO_GITHUB:
+            from github import Github
+            repo     = Github(GITHUB_TOKEN).get_repo(GITHUB_REPO)
+            conteudo = repo.get_contents(PLANILHA_UO, ref=BRANCH)
+            buffer   = io.BytesIO(base64.b64decode(conteudo.content))
+            df_uo    = pd.read_excel(buffer, sheet_name="UO")
+        else:
+            df_uo = pd.read_excel(PLANILHA_UO, sheet_name="UO")
+
+        # Pega a primeira coluna da aba UO, remove nulos e duplicatas
+        lista = df_uo.iloc[:, 0].dropna().drop_duplicates().astype(str).tolist()
+        lista = [v.strip() for v in lista if v.strip()]
+        lista.sort()
+        return lista
+    except Exception as e:
+        st.warning(f"⚠️ Não foi possível carregar a lista de UOs: {e}")
+        return []
+
+LISTA_UO = carregar_lista_uo()
+
 # ── Funções de persistência ──────────────────────────────────────────────────
 
-# ── MODO LOCAL ───────────────────────────────────────────────────────────────
 def ler_excel_local() -> pd.DataFrame:
     if os.path.exists(ARQUIVO_EXCEL):
         return pd.read_excel(ARQUIVO_EXCEL)
@@ -79,16 +95,15 @@ def salvar_excel_local(dados: dict):
     df_final     = pd.concat([df_existente, pd.DataFrame([dados])], ignore_index=True)
     df_final.to_excel(ARQUIVO_EXCEL, index=False)
 
-# ── MODO GITHUB ───────────────────────────────────────────────────────────────
 def get_repo():
     from github import Github
     return Github(GITHUB_TOKEN).get_repo(GITHUB_REPO)
 
 def ler_excel_github() -> pd.DataFrame:
     try:
-        repo      = get_repo()
-        conteudo  = repo.get_contents(ARQUIVO_EXCEL, ref=BRANCH)
-        buffer    = io.BytesIO(base64.b64decode(conteudo.content))
+        repo     = get_repo()
+        conteudo = repo.get_contents(ARQUIVO_EXCEL, ref=BRANCH)
+        buffer   = io.BytesIO(base64.b64decode(conteudo.content))
         return pd.read_excel(buffer)
     except Exception:
         return pd.DataFrame()
@@ -110,7 +125,6 @@ def salvar_excel_github(dados: dict):
     except Exception:
         repo.create_file(ARQUIVO_EXCEL, "Criação da planilha de inventário", conteudo_bytes, branch=BRANCH)
 
-# ── Funções unificadas (usadas pelo app) ─────────────────────────────────────
 def ler_excel() -> pd.DataFrame:
     return ler_excel_github() if MODO_GITHUB else ler_excel_local()
 
@@ -148,7 +162,6 @@ col_titulo, _, col_data = st.columns([4, 3, 2])
 with col_titulo:
     st.markdown('<div class="titulo-inventario">📋 INVENTÁRIO DE EQUIPAMENTOS</div>',
                 unsafe_allow_html=True)
-    # Aviso visual de qual modo está ativo
     if MODO_GITHUB:
         st.caption("☁️ Modo cloud — salvando no GitHub")
     else:
@@ -171,13 +184,18 @@ with col_nome:
 
 with col_uo:
     st.markdown('<div class="label-uo">🏢 UO</div>', unsafe_allow_html=True)
-    uo = st.selectbox("uo_select", LISTA_UO, key="uo", label_visibility="collapsed")
+    # selectbox com search nativo do Streamlit (basta digitar para filtrar)
+    uo = st.selectbox(
+        "uo_select",
+        options=["Selecione..."] + LISTA_UO,
+        key="uo",
+        label_visibility="collapsed",
+    )
 
 with col_obs:
     st.markdown("""
     <div style='font-size:12px; color:#555; padding-top:36px;'>
-    ℹ️ Ao selecionar a UO, o quantitativo de equipamentos pode ser
-    carregado automaticamente nas linhas abaixo.
+    ℹ️ Digite para pesquisar sua UO na lista suspensa ao lado.
     </div>""", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
