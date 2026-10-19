@@ -5,10 +5,8 @@ import io
 import base64
 import os
 
-# ── Configuração da página ──────────────────────────────────────────────────
 st.set_page_config(page_title="Inventário de Equipamentos", layout="wide")
 
-# ── CSS customizado ─────────────────────────────────────────────────────────
 st.markdown("""
 <style>
     .stApp { background-color: #f5f5f5; }
@@ -44,12 +42,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Constantes ──────────────────────────────────────────────────────────────
 TIPO_CELULAR  = ["Celular obra 360°", "Celular padrão"]
 ARQUIVO_EXCEL = "inventario_equipamentos.xlsx"
 PLANILHA_UO   = "bases/Planilha para atualização - Notebooks e Desktops.xlsx"
+SENHA_CORRETA = "Sucesso_obra_PEP"
 
-# ── Detecta modo de execução ─────────────────────────────────────────────────
 try:
     GITHUB_TOKEN  = st.secrets["GITHUB_TOKEN"]
     GITHUB_REPO   = st.secrets["GITHUB_REPO"]
@@ -59,7 +56,6 @@ try:
 except Exception:
     MODO_GITHUB   = False
 
-# ── Carrega lista de UOs da planilha base ────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def carregar_lista_uo() -> list:
     try:
@@ -71,8 +67,6 @@ def carregar_lista_uo() -> list:
             df_uo    = pd.read_excel(buffer, sheet_name="UO")
         else:
             df_uo = pd.read_excel(PLANILHA_UO, sheet_name="UO")
-
-        # Pega a primeira coluna da aba UO, remove nulos e duplicatas
         lista = df_uo.iloc[:, 0].dropna().drop_duplicates().astype(str).tolist()
         lista = [v.strip() for v in lista if v.strip()]
         lista.sort()
@@ -82,8 +76,6 @@ def carregar_lista_uo() -> list:
         return []
 
 LISTA_UO = carregar_lista_uo()
-
-# ── Funções de persistência ──────────────────────────────────────────────────
 
 def ler_excel_local() -> pd.DataFrame:
     if os.path.exists(ARQUIVO_EXCEL):
@@ -112,12 +104,10 @@ def salvar_excel_github(dados: dict):
     repo         = get_repo()
     df_existente = ler_excel_github()
     df_final     = pd.concat([df_existente, pd.DataFrame([dados])], ignore_index=True)
-
     buffer = io.BytesIO()
     df_final.to_excel(buffer, index=False)
     buffer.seek(0)
     conteudo_bytes = buffer.read()
-
     msg = f"Novo registro: {dados.get('Nome','')} | {dados.get('UO','')} | {dados.get('Data/Hora','')}"
     try:
         arq = repo.get_contents(ARQUIVO_EXCEL, ref=BRANCH)
@@ -134,13 +124,14 @@ def salvar_excel(dados: dict):
     else:
         salvar_excel_local(dados)
 
-# ── Inicialização do session_state ───────────────────────────────────────────
 def init_state():
     defaults = {
-        "qt_desktop" : 1,
-        "qt_notebook": 1,
-        "qt_celular" : 1,
-        "enviado"    : False,
+        "qt_desktop"      : 1,
+        "qt_notebook"     : 1,
+        "qt_celular"      : 1,
+        "enviado"         : False,
+        "senha_ok"        : False,
+        "senha_digitada"  : "",
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -149,19 +140,17 @@ def init_state():
 init_state()
 
 def resetar_formulario():
-    keys_para_limpar = [k for k in list(st.session_state.keys()) if k != "enviado"]
+    keys_para_limpar = [k for k in list(st.session_state.keys()) if k not in ("enviado", "senha_ok", "senha_digitada")]
     for k in keys_para_limpar:
         del st.session_state[k]
-    st.session_state.enviado     = False
-    st.session_state.qt_desktop  = 1
-    st.session_state.qt_notebook = 1
-    st.session_state.qt_celular  = 1
+    st.session_state.enviado        = False
+    st.session_state.qt_desktop     = 1
+    st.session_state.qt_notebook    = 1
+    st.session_state.qt_celular     = 1
 
-# ── CABEÇALHO ────────────────────────────────────────────────────────────────
 col_titulo, _, col_data = st.columns([4, 3, 2])
 with col_titulo:
-    st.markdown('<div class="titulo-inventario">📋 INVENTÁRIO DE EQUIPAMENTOS</div>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="titulo-inventario">📋 INVENTÁRIO DE EQUIPAMENTOS</div>', unsafe_allow_html=True)
     if MODO_GITHUB:
         st.caption("☁️ Modo cloud — salvando no GitHub")
     else:
@@ -169,28 +158,19 @@ with col_titulo:
 
 with col_data:
     data_hoje = datetime.now().strftime("%d/%m/%Y %H:%M")
-    st.markdown(f'<div class="badge-data">📅 Data automática: <b>{data_hoje}</b></div>',
-                unsafe_allow_html=True)
+    st.markdown(f'<div class="badge-data">📅 Data automática: <b>{data_hoje}</b></div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-# ── LINHA 1: Nome + UO ───────────────────────────────────────────────────────
 col_nome, _, col_uo, col_obs = st.columns([3, 0.5, 3, 3])
 
 with col_nome:
     st.markdown('<div class="label-nome">👤 Nome</div>', unsafe_allow_html=True)
-    nome = st.text_input("nome_input", placeholder="Digite seu nome completo",
-                         key="nome", label_visibility="collapsed")
+    nome = st.text_input("nome_input", placeholder="Digite seu nome completo", key="nome", label_visibility="collapsed")
 
 with col_uo:
     st.markdown('<div class="label-uo">🏢 UO</div>', unsafe_allow_html=True)
-    # selectbox com search nativo do Streamlit (basta digitar para filtrar)
-    uo = st.selectbox(
-        "uo_select",
-        options=["Selecione..."] + LISTA_UO,
-        key="uo",
-        label_visibility="collapsed",
-    )
+    uo = st.selectbox("uo_select", options=["Selecione..."] + LISTA_UO, key="uo", label_visibility="collapsed")
 
 with col_obs:
     st.markdown("""
@@ -200,30 +180,22 @@ with col_obs:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── LINHA 2: Quantitativos ────────────────────────────────────────────────────
 col_d, col_n, col_c = st.columns(3)
 
 with col_d:
-    st.markdown('<div class="secao-header">🖥️ Quantitativo desktop</div>',
-                unsafe_allow_html=True)
-    qt_desktop = st.selectbox("qt_desktop_sel", list(range(1, 21)),
-                              key="qt_desktop", label_visibility="collapsed")
+    st.markdown('<div class="secao-header">🖥️ Quantitativo desktop</div>', unsafe_allow_html=True)
+    qt_desktop = st.selectbox("qt_desktop_sel", list(range(1, 21)), key="qt_desktop", label_visibility="collapsed")
 
 with col_n:
-    st.markdown('<div class="secao-header">💻 Quantitativo notebook</div>',
-                unsafe_allow_html=True)
-    qt_notebook = st.selectbox("qt_notebook_sel", list(range(1, 21)),
-                               key="qt_notebook", label_visibility="collapsed")
+    st.markdown('<div class="secao-header">💻 Quantitativo notebook</div>', unsafe_allow_html=True)
+    qt_notebook = st.selectbox("qt_notebook_sel", list(range(1, 21)), key="qt_notebook", label_visibility="collapsed")
 
 with col_c:
-    st.markdown('<div class="secao-header">📱 Quantitativo celulares</div>',
-                unsafe_allow_html=True)
-    qt_celular = st.selectbox("qt_celular_sel", list(range(1, 21)),
-                              key="qt_celular", label_visibility="collapsed")
+    st.markdown('<div class="secao-header">📱 Quantitativo celulares</div>', unsafe_allow_html=True)
+    qt_celular = st.selectbox("qt_celular_sel", list(range(1, 21)), key="qt_celular", label_visibility="collapsed")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── LINHA 3: Patrimônios dinâmicos ────────────────────────────────────────────
 col_d2, col_n2, col_c2 = st.columns(3)
 
 patrimonios_desktop  = []
@@ -238,8 +210,7 @@ with col_d2:
         with c1:
             st.markdown(f'<div class="num-item">{i} -</div>', unsafe_allow_html=True)
         with c2:
-            val = st.text_input(f"desk_{i}", placeholder="Inserir patrimônio",
-                                key=f"desktop_{i}", label_visibility="collapsed")
+            val = st.text_input(f"desk_{i}", placeholder="Inserir patrimônio", key=f"desktop_{i}", label_visibility="collapsed")
             patrimonios_desktop.append(val)
 
 with col_n2:
@@ -249,8 +220,7 @@ with col_n2:
         with c1:
             st.markdown(f'<div class="num-item">{i} -</div>', unsafe_allow_html=True)
         with c2:
-            val = st.text_input(f"note_{i}", placeholder="Inserir patrimônio",
-                                key=f"notebook_{i}", label_visibility="collapsed")
+            val = st.text_input(f"note_{i}", placeholder="Inserir patrimônio", key=f"notebook_{i}", label_visibility="collapsed")
             patrimonios_notebook.append(val)
 
 with col_c2:
@@ -260,18 +230,15 @@ with col_c2:
         with c1:
             st.markdown(f'<div class="num-item">{i} -</div>', unsafe_allow_html=True)
         with c2:
-            tipo = st.selectbox(f"cel_tipo_{i}", TIPO_CELULAR,
-                                key=f"celular_tipo_{i}", label_visibility="collapsed")
+            tipo = st.selectbox(f"cel_tipo_{i}", TIPO_CELULAR, key=f"celular_tipo_{i}", label_visibility="collapsed")
             patrimonios_cel_tipo.append(tipo)
         _, c3 = st.columns([0.3, 2.7])
         with c3:
-            num = st.text_input(f"cel_num_{i}", placeholder="Inserir patrimônio",
-                                key=f"celular_num_{i}", label_visibility="collapsed")
+            num = st.text_input(f"cel_num_{i}", placeholder="Inserir patrimônio", key=f"celular_num_{i}", label_visibility="collapsed")
             patrimonios_cel_num.append(num)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── BOTÕES ────────────────────────────────────────────────────────────────────
 _, col_btn1, col_btn2 = st.columns([6, 1, 1.5])
 
 with col_btn1:
@@ -282,7 +249,6 @@ with col_btn1:
 with col_btn2:
     enviar = st.button("📤 Enviar")
 
-# ── LÓGICA DE ENVIO ───────────────────────────────────────────────────────────
 if enviar:
     erros = []
     if not nome.strip():
@@ -320,20 +286,36 @@ if enviar:
             except Exception as ex:
                 st.error(f"❌ Erro ao salvar: {ex}")
 
-# ── Prévia dos dados salvos ────────────────────────────────────────────────────
 if st.session_state.enviado:
     with st.expander("📊 Ver todos os registros salvos"):
-        df_view = ler_excel()
-        if not df_view.empty:
-            st.dataframe(df_view, use_container_width=True)
-            buffer_dl = io.BytesIO()
-            df_view.to_excel(buffer_dl, index=False)
-            buffer_dl.seek(0)
-            st.download_button(
-                label="⬇️ Baixar planilha Excel",
-                data=buffer_dl,
-                file_name=ARQUIVO_EXCEL,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.info("Nenhum registro encontrado ainda.")
+        st.markdown("🔒 **Acesso restrito** — insira a senha para visualizar e baixar a planilha.")
+
+        senha_input = st.text_input(
+            "Senha de acesso",
+            type="password",
+            placeholder="Digite a senha...",
+            key="campo_senha"
+        )
+
+        if st.button("🔓 Acessar"):
+            if senha_input == SENHA_CORRETA:
+                st.session_state.senha_ok = True
+            else:
+                st.session_state.senha_ok = False
+                st.error("❌ Senha incorreta. Tente novamente.")
+
+        if st.session_state.senha_ok:
+            df_view = ler_excel()
+            if not df_view.empty:
+                st.dataframe(df_view, use_container_width=True)
+                buffer_dl = io.BytesIO()
+                df_view.to_excel(buffer_dl, index=False)
+                buffer_dl.seek(0)
+                st.download_button(
+                    label="⬇️ Baixar planilha Excel",
+                    data=buffer_dl,
+                    file_name=ARQUIVO_EXCEL,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.info("Nenhum registro encontrado ainda.")
